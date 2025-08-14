@@ -45,6 +45,7 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
   const [mcqOptions, setMcqOptions] = useState<any[]>([]);
   const [selectedMcqId, setSelectedMcqId] = useState<string | null>(null);
   const [questionStartTime, setQuestionStartTime] = useState(0);
+  const [copyStatus, setCopyStatus] = useState('Copy Code');
 
   const peerRef = useRef<any>(null);
   const hostConnectionRef = useRef<any>(null); // For clients
@@ -55,6 +56,14 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
       conn.send({ type: 'STATE_UPDATE', payload: state });
     });
   }, []);
+  
+  // This effect ensures the host reliably broadcasts the latest state to all clients.
+  useEffect(() => {
+      if (isHost && tournament) {
+          broadcastTournamentState(tournament);
+      }
+  }, [isHost, tournament, broadcastTournamentState]);
+
 
   // Host: Initialize tournament state
   useEffect(() => {
@@ -92,6 +101,10 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
       } else {
         // Client connects to host
         const conn = peer.connect(roomCode);
+        if (!conn) {
+            setError(`Could not connect to room with code: ${roomCode}. Please check the code and try again.`);
+            return;
+        }
         hostConnectionRef.current = conn;
         conn.on('open', () => {
           conn.send({ type: 'JOIN_REQUEST', payload: { name: playerName } });
@@ -104,7 +117,7 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
              }
           }
         });
-         conn.on('error', (err) => setError(`Connection error: ${err.message}`));
+         conn.on('error', (err) => setError(`Connection error: ${err.type}. Message: ${err.message}`));
       }
     });
 
@@ -123,7 +136,7 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
                 isFinished: false,
               };
               const updatedState = { ...prev, players: { ...prev.players, [data.payload.name]: newPlayer }};
-              broadcastTournamentState(updatedState);
+              // No need to broadcast here, the useEffect on `tournament` state will handle it
               return updatedState;
             });
           } else if (data.type === 'SUBMIT_ANSWER') {
@@ -131,7 +144,6 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
           }
         });
         conn.on('close', () => {
-             // Handle player disconnect
             delete clientConnectionsRef.current[conn.peer];
             setTournament(prev => {
                 if (!prev) return null;
@@ -141,7 +153,6 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
                     delete newPlayers[playerToRemove.name];
                 }
                 const updatedState = {...prev, players: newPlayers };
-                broadcastTournamentState(updatedState);
                 return updatedState;
             });
         });
@@ -153,7 +164,7 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
     return () => {
       peer.destroy();
     };
-  }, [isHost, playerName, roomCode, broadcastTournamentState, questionStartTime]);
+  }, [isHost, playerName, roomCode]);
   
   // MCQ options setup
   useEffect(() => {
@@ -165,7 +176,7 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
         setMcqOptions(shuffleArray([...randomOptions, currentQuestion]));
       }
     }
-  }, [tournament, playerName]);
+  }, [tournament?.status, tournament?.players, tournament?.questions, tournament?.gameType, playerName]);
 
 
   const handleAnswerSubmitted = (pName: string, answer: string, timeTaken: number) => {
@@ -204,7 +215,6 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
           status: allFinished ? 'finished' as const : prev.status
       };
       
-      broadcastTournamentState(updatedState);
       return updatedState;
     });
   };
@@ -214,14 +224,26 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
     const isMcq = tournament!.gameType === 'audioToImage' || tournament!.gameType === 'imageToAudio';
     const answer = isMcq ? selectedMcqId : userInput.trim();
 
+    if (!answer) return;
+
     if (isHost) {
-      handleAnswerSubmitted(playerName, answer!, timeTaken);
+      handleAnswerSubmitted(playerName, answer, timeTaken);
     } else {
       hostConnectionRef.current.send({ type: 'SUBMIT_ANSWER', payload: { playerId: playerName, answer, timeTaken } });
     }
     setUserInput('');
     setSelectedMcqId(null);
     setQuestionStartTime(Date.now());
+  };
+  
+  const handleCopyCode = () => {
+    if (!tournament?.id) return;
+    navigator.clipboard.writeText(tournament.id).then(() => {
+        setCopyStatus('Copied!');
+        setTimeout(() => setCopyStatus('Copy Code'), 2000);
+    }, () => {
+        setError('Failed to copy code. Please copy it manually.');
+    });
   };
 
   const player = useMemo(() => tournament?.players?.[playerName], [tournament, playerName]);
@@ -244,7 +266,15 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
         {isHost && tournament.id && (
             <div className='my-4'>
                 <p className="text-gray-300">Share this Room Code:</p>
-                <p className="text-2xl font-bold bg-gray-900 p-2 rounded-lg my-1 select-all">{tournament.id}</p>
+                <div className="flex justify-center items-center gap-2 mt-2">
+                    <p className="text-xl sm:text-2xl font-bold bg-gray-900 p-2 rounded-lg select-all">{tournament.id}</p>
+                    <button
+                        onClick={handleCopyCode}
+                        className={`px-4 py-2 rounded-lg text-white font-semibold ${copyStatus === 'Copied!' ? 'bg-green-600' : 'bg-purple-600 hover:bg-purple-700'}`}
+                    >
+                         {copyStatus}
+                    </button>
+                </div>
             </div>
         )}
         <p className="mb-4 text-gray-400">Game: <span className="font-semibold text-white">{gameTitles[tournament.gameType]}</span></p>
@@ -257,8 +287,8 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
         {isHost ? (
           <button onClick={() => {
               setTournament(prev => {
-                  const updated = {...prev!, status: 'playing' as const };
-                  broadcastTournamentState(updated);
+                  if (!prev) return null;
+                  const updated = {...prev, status: 'playing' as const };
                   setQuestionStartTime(Date.now());
                   return updated;
               })
@@ -367,7 +397,7 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
                 </div>
             ) : null}
 
-            <button onClick={submitAnswer} disabled={isTextInputGame ? !userInput : !selectedMcqId} className="mt-4 w-full px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold disabled:opacity-50">
+            <button onClick={submitAnswer} disabled={(isTextInputGame ? !userInput : !selectedMcqId)} className="mt-4 w-full px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold disabled:opacity-50">
               Submit Answer
             </button>
         </div>

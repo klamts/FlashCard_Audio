@@ -68,6 +68,18 @@ const TournamentLobby: React.FC<TournamentLobbyProps> = ({ flashcards, onExit })
         playerName: playerName.trim(),
     });
   }
+  
+  const handlePasteCode = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        setRoomCode(text);
+      }
+    } catch (err) {
+      setError("Failed to read clipboard. Please paste the code manually.");
+      console.error('Failed to read clipboard permissions: ', err);
+    }
+  };
 
   if (activeTournament) {
     return (
@@ -136,13 +148,22 @@ const TournamentLobby: React.FC<TournamentLobbyProps> = ({ flashcards, onExit })
               placeholder="Enter Your Name"
               className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:ring-amber-500 focus:border-amber-500"
             />
-            <input
-              type="text"
-              value={roomCode}
-              onChange={(e) => setRoomCode(e.target.value)}
-              placeholder="Enter Room Code"
-              className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:ring-amber-500 focus:border-amber-500"
-            />
+             <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={roomCode}
+                  onChange={(e) => setRoomCode(e.target.value)}
+                  placeholder="Enter Room Code"
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:ring-amber-500 focus:border-amber-500"
+                />
+                <button
+                    onClick={handlePasteCode}
+                    title="Paste from clipboard"
+                    className="p-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-white"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 5H9m3 4H9m5-4h.01M13 16h.01" /></svg>
+                </button>
+            </div>
              <div className="flex-grow"></div>
              <button
                 onClick={handleJoinRoom}
