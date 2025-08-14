@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audio Flashcard Image Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        background-color: #111827;
+      }
+    </style>
+    <!-- 
+      IMPORTANT: Firebase SDK setup
+      A Firebase project is required for the online tournament feature.
+      1. Go to https://console.firebase.google.com/ and create a new project.
+      2. In your project, go to Build -> Firestore Database and create a database.
+         - Start in **test mode** for easy setup. This will allow open access for 30 days.
+         - WARNING: Test mode rules are not secure for production apps.
+      3. Go to Project Settings (gear icon) -> General -> Your apps.
+      4. Create a new Web App (</>).
+      5. Firebase will give you a `firebaseConfig` object.
+      6. Paste that object below, replacing the placeholder values.
+    -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
+      import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+      
+      const firebaseConfig = {
+        apiKey: "YOUR_API_KEY",
+        authDomain: "YOUR_AUTH_DOMAIN",
+        projectId: "YOUR_PROJECT_ID",
+        storageBucket: "YOUR_STORAGE_BUCKET",
+        messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+        appId: "YOUR_APP_ID"
+      };
+
+      // Check if the placeholder config values are still present.
+      if (firebaseConfig.apiKey.startsWith("YOUR_")) {
+          console.error("Firebase is not configured. Please replace the placeholder values in `firebaseConfig` in your index.html file.");
+          window.firestore = null;
+      } else {
+          // Initialize Firebase
+          try {
+            const app = initializeApp(firebaseConfig);
+            // Make firestore instance available globally for our service module
+            window.firestore = getFirestore(app);
+          } catch (e) {
+            console.error("Firebase initialization failed. Please check your firebaseConfig values and ensure your Firebase project is set up correctly (Firestore DB created, etc).", e);
+            window.firestore = null;
+          }
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.13.0",
+    "react": "https://esm.sh/react@19.1.1",
+    "react-dom/client": "https://esm.sh/react-dom@19.1.1/client",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js",
+    "firebase/": "https://esm.sh/firebase@^12.1.0/",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
+    "react/": "https://esm.sh/react@^19.1.1/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
