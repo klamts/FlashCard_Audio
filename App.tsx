@@ -12,8 +12,6 @@ type ViewState =
   | { mode: 'localGame'; gameType: GameType }
   | { mode: 'tournament' };
 
-const isFirebaseConfigured = !!window.firestore;
-
 const App: React.FC = () => {
   const [flashcards, setFlashcards] = useState<FlashcardItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -214,7 +212,7 @@ const App: React.FC = () => {
           {viewState.mode === 'deck' && (
             <>
               <p className="mt-2 text-lg text-gray-400">
-                Generate images, practice pronunciation, or compete in online tournaments.
+                Generate images, practice pronunciation, or compete in local tournaments.
               </p>
               <div className="mt-6 flex justify-center items-center gap-4 flex-wrap">
                  <button
@@ -230,18 +228,10 @@ const App: React.FC = () => {
                     Practice Game
                 </button>
                  <button
-                    onClick={() => {
-                        if (!isFirebaseConfigured) {
-                            setError("Firebase is not configured. Please follow the instructions in index.html to enable Online Tournaments.");
-                            return;
-                        }
-                        setViewState({ mode: 'tournament' });
-                    }}
-                    disabled={!isFirebaseConfigured}
-                    className="px-6 py-2 bg-amber-500 hover:bg-amber-600 rounded-lg text-white font-semibold shadow-lg transition-transform transform hover:scale-105 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:transform-none"
-                    title={!isFirebaseConfigured ? "Firebase not configured. Please see instructions in index.html." : "Compete against others online!"}
+                    onClick={() => setViewState({ mode: 'tournament' })}
+                    className="px-6 py-2 bg-amber-500 hover:bg-amber-600 rounded-lg text-white font-semibold shadow-lg transition-transform transform hover:scale-105"
                     >
-                    Online Tournament
+                    LAN Tournament
                 </button>
               </div>
               <div className="mt-4 flex justify-center items-center gap-4 flex-wrap">

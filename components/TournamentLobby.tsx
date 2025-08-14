@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { GameType, FlashcardItem, Tournament } from '../types';
-import { createTournament, onTournamentsListUpdate } from '../services/firebaseService';
+import React, { useState } from 'react';
+import { GameType, FlashcardItem } from '../types';
 import { shuffleArray } from '../utils/gameUtils';
 import GameSelectionModal from './GameSelectionModal';
 import TournamentRoom from './TournamentRoom';
@@ -15,17 +14,19 @@ const TournamentLobby: React.FC<TournamentLobbyProps> = ({ flashcards, onExit })
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isGameModalOpen, setIsGameModalOpen] = useState(false);
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [joinedTournament, setJoinedTournament] = useState<{ id: string; name: string } | null>(null);
+  const [roomCode, setRoomCode] = useState('');
+  
+  const [activeTournament, setActiveTournament] = useState<{
+    roomCode: string;
+    isHost: boolean;
+    playerName: string;
+    initialGameType?: GameType;
+  } | null>(null);
 
-  useEffect(() => {
-    const unsubscribe = onTournamentsListUpdate(setTournaments);
-    return () => unsubscribe();
-  }, []);
 
-  const handleCreateTournament = async (gameType: GameType) => {
+  const handleCreateRoom = (gameType: GameType) => {
     if (!playerName.trim()) {
-      setError('Please enter your name before creating a tournament.');
+      setError('Please enter your name before creating a room.');
       return;
     }
     setError(null);
@@ -38,38 +39,45 @@ const TournamentLobby: React.FC<TournamentLobbyProps> = ({ flashcards, onExit })
         return;
     }
     
-    // Use a subset of cards for the tournament to keep it snappy
-    const tournamentQuestions = playableCards.slice(0, Math.min(10, playableCards.length));
-
-    try {
-      const tournamentId = await createTournament(playerName.trim(), gameType, tournamentQuestions);
-      localStorage.setItem('playerName', playerName.trim());
-      setJoinedTournament({ id: tournamentId, name: playerName.trim() });
-    } catch (err) {
-      console.error(err);
-      setError(err instanceof Error ? err.message : 'Failed to create tournament.');
-    } finally {
-      setIsCreating(false);
-      setIsGameModalOpen(false);
-    }
+    localStorage.setItem('playerName', playerName.trim());
+    
+    setActiveTournament({
+        roomCode: '', // This will be set by the TournamentRoom as the host
+        isHost: true,
+        playerName: playerName.trim(),
+        initialGameType: gameType,
+    });
+    
+    setIsCreating(false);
+    setIsGameModalOpen(false);
   };
 
-  const handleJoinTournament = async (tournamentId: string) => {
-    // This will be handled inside the TournamentRoom component now
+  const handleJoinRoom = () => {
      if (!playerName.trim()) {
       setError('Please enter your name to join.');
       return;
     }
+    if (!roomCode.trim()) {
+      setError('Please enter a room code.');
+      return;
+    }
     localStorage.setItem('playerName', playerName.trim());
-    setJoinedTournament({ id: tournamentId, name: playerName.trim() });
+    setActiveTournament({
+        roomCode: roomCode.trim(),
+        isHost: false,
+        playerName: playerName.trim(),
+    });
   }
 
-  if (joinedTournament) {
+  if (activeTournament) {
     return (
       <TournamentRoom
-        tournamentId={joinedTournament.id}
-        playerName={joinedTournament.name}
-        onExit={() => setJoinedTournament(null)}
+        isHost={activeTournament.isHost}
+        playerName={activeTournament.playerName}
+        roomCode={activeTournament.roomCode}
+        initialGameType={activeTournament.initialGameType}
+        flashcards={flashcards}
+        onExit={() => setActiveTournament(null)}
       />
     );
   }
@@ -78,7 +86,7 @@ const TournamentLobby: React.FC<TournamentLobbyProps> = ({ flashcards, onExit })
     <div className="max-w-4xl mx-auto bg-gray-800 p-6 rounded-lg">
        <div className="flex justify-between items-center mb-6">
             <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
-                Online Tournament Lobby
+                LAN Tournament Lobby
             </h2>
             <button onClick={onExit} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-semibold">
                 Back to Deck
@@ -96,9 +104,9 @@ const TournamentLobby: React.FC<TournamentLobbyProps> = ({ flashcards, onExit })
 
       <div className="grid md:grid-cols-2 gap-8">
         {/* Create Tournament Section */}
-        <div className="bg-gray-700 p-6 rounded-lg">
-          <h3 className="text-xl font-semibold mb-4 text-white">Create a New Tournament</h3>
-          <div className="space-y-4">
+        <div className="bg-gray-700 p-6 rounded-lg flex flex-col">
+          <h3 className="text-xl font-semibold mb-4 text-white">Create a New Room</h3>
+          <div className="space-y-4 flex-grow flex flex-col">
             <input
               type="text"
               value={playerName}
@@ -106,45 +114,47 @@ const TournamentLobby: React.FC<TournamentLobbyProps> = ({ flashcards, onExit })
               placeholder="Enter Your Name"
               className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:ring-amber-500 focus:border-amber-500"
             />
+             <div className="flex-grow"></div>
             <button
               onClick={() => setIsGameModalOpen(true)}
               disabled={isCreating || !playerName.trim()}
-              className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full mt-auto px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isCreating ? 'Creating...' : 'Choose Game Mode & Create'}
+              {isCreating ? 'Creating...' : 'Create Room & Choose Game'}
             </button>
           </div>
         </div>
         
         {/* Join Tournament Section */}
-        <div className="bg-gray-700 p-6 rounded-lg">
-          <h3 className="text-xl font-semibold mb-4 text-white">Join an Existing Tournament</h3>
-          <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
-            {tournaments.length === 0 ? (
-              <p className="text-gray-400">No active tournaments. Why not create one?</p>
-            ) : (
-              tournaments.map((t) => (
-                <div key={t.id} className="p-3 bg-gray-800 rounded-lg flex justify-between items-center">
-                  <div>
-                    <p className="font-bold">{t.gameType}</p>
-                    <p className="text-sm text-gray-400">
-                      Players: {Object.keys(t.players || {}).length}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleJoinTournament(t.id)}
-                    disabled={!playerName.trim()}
-                    className="px-4 py-1 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white text-sm font-semibold disabled:opacity-50"
-                  >
-                    Join
-                  </button>
-                </div>
-              ))
-            )}
+        <div className="bg-gray-700 p-6 rounded-lg flex flex-col">
+          <h3 className="text-xl font-semibold mb-4 text-white">Join an Existing Room</h3>
+          <div className="space-y-4 flex-grow flex flex-col">
+             <input
+              type="text"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Enter Your Name"
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:ring-amber-500 focus:border-amber-500"
+            />
+            <input
+              type="text"
+              value={roomCode}
+              onChange={(e) => setRoomCode(e.target.value)}
+              placeholder="Enter Room Code"
+              className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white focus:ring-amber-500 focus:border-amber-500"
+            />
+             <div className="flex-grow"></div>
+             <button
+                onClick={handleJoinRoom}
+                disabled={!playerName.trim() || !roomCode.trim()}
+                className="w-full mt-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white font-semibold disabled:opacity-50"
+              >
+                Join
+             </button>
           </div>
         </div>
       </div>
-      {isGameModalOpen && <GameSelectionModal onSelectGame={handleCreateTournament} onClose={() => setIsGameModalOpen(false)} />}
+      {isGameModalOpen && <GameSelectionModal onSelectGame={handleCreateRoom} onClose={() => setIsGameModalOpen(false)} />}
     </div>
   );
 };

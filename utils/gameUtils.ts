@@ -39,7 +39,7 @@ export const createBlanks = (text: string, numBlanks: number = 2): string => {
   return blankedResult;
 };
 
-export const getRandomItems = <T extends {id: string; imageUrl: string | null;}>(arr: T[], currentId: string, count: number): T[] => {
+export const getRandomItems = (arr: FlashcardItem[], currentId: string, count: number): FlashcardItem[] => {
   const otherItems = arr.filter(item => item.id !== currentId && item.imageUrl);
   const shuffled = shuffleArray(otherItems);
   return shuffled.slice(0, count);

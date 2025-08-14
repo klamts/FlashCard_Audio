@@ -23,17 +23,9 @@ export interface GameResult {
   comparison?: ComparisonResult[] | null;
 }
 
-// A version of FlashcardItem for storing in Firestore, without client-side state.
-export interface TournamentQuestion {
-  id: string;
-  text: string;
-  audioUrl: string;
-  imageUrl: string | null;
-}
-
-// New Types for Online Tournaments
+// New Types for LAN Tournaments
 export interface TournamentPlayer {
-    id: string; // Corresponds to user-entered name, should be unique within tournament
+    id: string; // Corresponds to peer ID for clients, or name for host
     name: string;
     score: number;
     currentQuestionIndex: number;
@@ -41,13 +33,12 @@ export interface TournamentPlayer {
 }
 
 export interface Tournament {
-    id: string;
+    id: string; // Room Code / Host's Peer ID
     gameType: GameType;
     status: 'waiting' | 'playing' | 'finished';
-    questions: TournamentQuestion[]; // Use the cleaner data type
+    questions: FlashcardItem[];
     players: { [key: string]: TournamentPlayer }; // Using a map for easy player lookup
-    creatorId: string;
-    createdAt: any; // Firestore Timestamp
+    creatorId: string; // Host's name
 }
 
 
@@ -98,6 +89,6 @@ declare global {
   interface Window {
     SpeechRecognition: SpeechRecognitionStatic;
     webkitSpeechRecognition: SpeechRecognitionStatic;
-    firestore: any;
+    Peer: any; // Add PeerJS to the global window object
   }
 }
