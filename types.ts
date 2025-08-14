@@ -23,13 +23,25 @@ export interface GameResult {
   comparison?: ComparisonResult[] | null;
 }
 
-// New Types for LAN Tournaments
+// Types for LAN Tournaments with Chat and Live Feedback
+
+export interface ChatMessage {
+  name: string;
+  message: string;
+  timestamp: number;
+}
+
 export interface TournamentPlayer {
     id: string; // Corresponds to peer ID for clients, or name for host
     name: string;
     score: number;
     currentQuestionIndex: number;
     isFinished: boolean;
+    // For live feedback on the leaderboard
+    lastAnswer?: {
+        correct: boolean;
+        scoreChange: number;
+    } | null;
 }
 
 export interface Tournament {
@@ -39,6 +51,20 @@ export interface Tournament {
     questions: FlashcardItem[];
     players: { [key: string]: TournamentPlayer }; // Using a map for easy player lookup
     creatorId: string; // Host's name
+    messages: ChatMessage[]; // For the in-game chat
+}
+
+
+// Types for the Public Chat Room
+export interface PublicChatPlayer {
+  id: string; // Peer ID
+  name: string;
+}
+
+export interface PublicChatState {
+  hostId: string;
+  players: { [id: string]: PublicChatPlayer };
+  messages: ChatMessage[];
 }
 
 

@@ -5,6 +5,7 @@ import Card from './components/Card';
 import GameSelectionModal from './components/GameSelectionModal';
 import GameMode from './components/GameMode';
 import TournamentLobby from './components/TournamentLobby';
+import PublicChat from './components/PublicChat';
 import { generateImageFromPrompt } from './services/geminiService';
 
 type ViewState = 
@@ -209,11 +210,14 @@ const App: React.FC = () => {
           <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">
             Audio Flashcard Image Generator
           </h1>
+          <p className="mt-2 text-lg text-gray-400">
+            Generate images, practice pronunciation, or compete in local tournaments.
+          </p>
+          <div className="my-6">
+              <PublicChat />
+          </div>
           {viewState.mode === 'deck' && (
             <>
-              <p className="mt-2 text-lg text-gray-400">
-                Generate images, practice pronunciation, or compete in local tournaments.
-              </p>
               <div className="mt-6 flex justify-center items-center gap-4 flex-wrap">
                  <button
                     onClick={handleGenerateAll}

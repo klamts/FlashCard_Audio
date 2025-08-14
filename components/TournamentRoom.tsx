@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Tournament, TournamentPlayer, GameType, FlashcardItem } from '../types';
+import { Tournament, TournamentPlayer, GameType, FlashcardItem, ChatMessage } from '../types';
 import { shuffleArray, scrambleText, createBlanks, getRandomItems } from '../utils/gameUtils';
 import Spinner from './Spinner';
 
@@ -46,10 +46,12 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
   const [selectedMcqId, setSelectedMcqId] = useState<string | null>(null);
   const [questionStartTime, setQuestionStartTime] = useState(0);
   const [copyStatus, setCopyStatus] = useState('Copy Code');
+  const [chatMessage, setChatMessage] = useState('');
 
   const peerRef = useRef<any>(null);
   const hostConnectionRef = useRef<any>(null); // For clients
   const clientConnectionsRef = useRef<any>({}); // For host
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   const broadcastTournamentState = useCallback((state: Tournament) => {
     Object.values(clientConnectionsRef.current).forEach((conn: any) => {
@@ -63,6 +65,13 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
           broadcastTournamentState(tournament);
       }
   }, [isHost, tournament, broadcastTournamentState]);
+
+  // Scroll chat to bottom
+  useEffect(() => {
+    if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [tournament?.messages]);
 
 
   // Host: Initialize tournament state
@@ -87,8 +96,64 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
       questions: tournamentQuestions,
       players: { [playerName]: hostPlayer },
       creatorId: playerName,
+      messages: [], // Initialize chat
     });
   }, [isHost, initialGameType, flashcards, playerName]);
+  
+  const handleAnswerSubmitted = (pName: string, answer: string, timeTaken: number) => {
+    setTournament(prev => {
+      if (!prev) return null;
+
+      const playerState = prev.players[pName];
+      const question = prev.questions[playerState.currentQuestionIndex];
+      if (!playerState || !question || playerState.isFinished) return prev;
+
+      const isMcq = prev.gameType === 'audioToImage' || prev.gameType === 'imageToAudio';
+      const isCorrect = isMcq ? answer === question.id : answer.toLowerCase() === question.text.toLowerCase();
+      
+      let scoreIncrement = 0;
+      if (isCorrect) {
+        // Score is 1000 base minus a penalty for time taken. Capped at 0.
+        scoreIncrement = Math.max(0, 1000 - Math.floor(timeTaken / 20));
+      }
+
+      const nextIndex = playerState.currentQuestionIndex + 1;
+      const isFinished = nextIndex >= prev.questions.length;
+
+      const updatedPlayer: TournamentPlayer = {
+        ...playerState,
+        score: playerState.score + scoreIncrement,
+        currentQuestionIndex: nextIndex,
+        isFinished: isFinished,
+        lastAnswer: { correct: isCorrect, scoreChange: scoreIncrement },
+      };
+
+      const updatedPlayers = { ...prev.players, [pName]: updatedPlayer };
+      
+      const allFinished = Object.values(updatedPlayers).every(p => p.isFinished);
+      
+      const updatedState: Tournament = { 
+          ...prev, 
+          players: updatedPlayers,
+          status: allFinished ? 'finished' : prev.status
+      };
+      
+      // Schedule feedback clearing
+      setTimeout(() => {
+        setTournament(currentTournament => {
+            if (!currentTournament || !currentTournament.players[pName]?.lastAnswer) {
+                return currentTournament;
+            }
+            const playerToClear = currentTournament.players[pName];
+            const clearedPlayer = { ...playerToClear, lastAnswer: null };
+            const clearedPlayers = { ...currentTournament.players, [pName]: clearedPlayer };
+            return { ...currentTournament, players: clearedPlayers };
+        });
+      }, 3000); // clear after 3 seconds
+
+      return updatedState;
+    });
+  };
 
   // P2P Setup
   useEffect(() => {
@@ -117,7 +182,7 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
              }
           }
         });
-         conn.on('error', (err) => setError(`Connection error: ${err.type}. Message: ${err.message}`));
+         conn.on('error', (err: any) => setError(`Connection error: ${err.type}. Message: ${err.message}`));
       }
     });
 
@@ -135,12 +200,12 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
                 currentQuestionIndex: 0,
                 isFinished: false,
               };
-              const updatedState = { ...prev, players: { ...prev.players, [data.payload.name]: newPlayer }};
-              // No need to broadcast here, the useEffect on `tournament` state will handle it
-              return updatedState;
+              return { ...prev, players: { ...prev.players, [data.payload.name]: newPlayer }};
             });
           } else if (data.type === 'SUBMIT_ANSWER') {
              handleAnswerSubmitted(data.payload.playerId, data.payload.answer, data.payload.timeTaken);
+          } else if (data.type === 'CHAT_MESSAGE') {
+            setTournament(prev => prev ? { ...prev, messages: [...prev.messages, data.payload] } : null);
           }
         });
         conn.on('close', () => {
@@ -152,19 +217,18 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
                 if (playerToRemove) {
                     delete newPlayers[playerToRemove.name];
                 }
-                const updatedState = {...prev, players: newPlayers };
-                return updatedState;
+                return {...prev, players: newPlayers };
             });
         });
       });
     }
 
-    peer.on('error', (err) => setError(`PeerJS error: ${err.message}. Ensure you are on the same local network.`));
+    peer.on('error', (err: any) => setError(`PeerJS error: ${err.message}. Ensure you are on the same local network.`));
 
     return () => {
       peer.destroy();
     };
-  }, [isHost, playerName, roomCode]);
+  }, [isHost, playerName, roomCode]); // handleAnswerSubmitted removed from deps to prevent re-renders
   
   // MCQ options setup
   useEffect(() => {
@@ -177,47 +241,6 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
       }
     }
   }, [tournament?.status, tournament?.players, tournament?.questions, tournament?.gameType, playerName]);
-
-
-  const handleAnswerSubmitted = (pName: string, answer: string, timeTaken: number) => {
-    setTournament(prev => {
-      if (!prev) return null;
-
-      const playerState = prev.players[pName];
-      const question = prev.questions[playerState.currentQuestionIndex];
-      if (!playerState || !question) return prev;
-
-      const isMcq = prev.gameType === 'audioToImage' || prev.gameType === 'imageToAudio';
-      const isCorrect = isMcq ? answer === question.id : answer.toLowerCase() === question.text.toLowerCase();
-      
-      let scoreIncrement = 0;
-      if (isCorrect) {
-        scoreIncrement = Math.max(0, 1000 - Math.floor(timeTaken / 20));
-      }
-
-      const nextIndex = playerState.currentQuestionIndex + 1;
-      const isFinished = nextIndex >= prev.questions.length;
-
-      const updatedPlayer: TournamentPlayer = {
-        ...playerState,
-        score: playerState.score + scoreIncrement,
-        currentQuestionIndex: nextIndex,
-        isFinished: isFinished,
-      };
-
-      const updatedPlayers = { ...prev.players, [pName]: updatedPlayer };
-      
-      const allFinished = Object.values(updatedPlayers).every(p => p.isFinished);
-      
-      const updatedState = { 
-          ...prev, 
-          players: updatedPlayers,
-          status: allFinished ? 'finished' as const : prev.status
-      };
-      
-      return updatedState;
-    });
-  };
 
   const submitAnswer = () => {
     const timeTaken = Date.now() - questionStartTime;
@@ -236,6 +259,23 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
     setQuestionStartTime(Date.now());
   };
   
+  const handleSendMessage = () => {
+    if (!chatMessage.trim()) return;
+
+    const message: ChatMessage = {
+      name: playerName,
+      message: chatMessage.trim(),
+      timestamp: Date.now(),
+    };
+
+    if (isHost) {
+      setTournament(prev => prev ? { ...prev, messages: [...prev.messages, message] } : null);
+    } else {
+      hostConnectionRef.current.send({ type: 'CHAT_MESSAGE', payload: message });
+    }
+    setChatMessage('');
+  };
+
   const handleCopyCode = () => {
     if (!tournament?.id) return;
     navigator.clipboard.writeText(tournament.id).then(() => {
@@ -261,44 +301,65 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
   // WAITING ROOM
   if (tournament.status === 'waiting') {
     return (
-      <div className="max-w-2xl mx-auto bg-gray-800 p-6 rounded-lg text-center">
-        <h2 className="text-2xl font-bold mb-2">Waiting for Players...</h2>
-        {isHost && tournament.id && (
-            <div className='my-4'>
-                <p className="text-gray-300">Share this Room Code:</p>
-                <div className="flex justify-center items-center gap-2 mt-2">
-                    <p className="text-xl sm:text-2xl font-bold bg-gray-900 p-2 rounded-lg select-all">{tournament.id}</p>
-                    <button
-                        onClick={handleCopyCode}
-                        className={`px-4 py-2 rounded-lg text-white font-semibold ${copyStatus === 'Copied!' ? 'bg-green-600' : 'bg-purple-600 hover:bg-purple-700'}`}
-                    >
-                         {copyStatus}
-                    </button>
+      <div className="max-w-4xl mx-auto flex flex-col md:flex-row gap-6">
+        <div className="flex-grow bg-gray-800 p-6 rounded-lg text-center">
+            <h2 className="text-2xl font-bold mb-2">Waiting for Players...</h2>
+            {isHost && tournament.id && (
+                <div className='my-4'>
+                    <p className="text-gray-300">Share this Room Code:</p>
+                    <div className="flex justify-center items-center gap-2 mt-2">
+                        <p className="text-xl sm:text-2xl font-bold bg-gray-900 p-2 rounded-lg select-all">{tournament.id}</p>
+                        <button
+                            onClick={handleCopyCode}
+                            className={`px-4 py-2 rounded-lg text-white font-semibold ${copyStatus === 'Copied!' ? 'bg-green-600' : 'bg-purple-600 hover:bg-purple-700'}`}
+                        >
+                            {copyStatus}
+                        </button>
+                    </div>
                 </div>
+            )}
+            <p className="mb-4 text-gray-400">Game: <span className="font-semibold text-white">{gameTitles[tournament.gameType]}</span></p>
+            <div className="bg-gray-900 p-4 rounded-lg mb-6">
+            <h3 className="text-lg font-bold mb-2 text-purple-400">Players Joined ({sortedPlayers.length})</h3>
+            <ul className="space-y-2">
+                {sortedPlayers.map(p => <li key={p.id} className="text-white font-semibold text-xl">{p.name}</li>)}
+            </ul>
             </div>
-        )}
-        <p className="mb-4 text-gray-400">Game: <span className="font-semibold text-white">{gameTitles[tournament.gameType]}</span></p>
-        <div className="bg-gray-900 p-4 rounded-lg mb-6">
-          <h3 className="text-lg font-bold mb-2 text-purple-400">Players Joined</h3>
-          <ul className="space-y-2">
-            {sortedPlayers.map(p => <li key={p.id} className="text-white font-semibold text-xl">{p.name}</li>)}
-          </ul>
+            {isHost ? (
+            <button onClick={() => {
+                setTournament(prev => {
+                    if (!prev) return null;
+                    const updated = {...prev, status: 'playing' as const };
+                    setQuestionStartTime(Date.now());
+                    return updated;
+                })
+            }} className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold">
+                Start Game for Everyone
+            </button>
+            ) : (
+            <p className="text-gray-400">The host (<span className="text-white">{tournament.creatorId}</span>) will start the game soon.</p>
+            )}
+            <button onClick={onExit} className="mt-4 text-sm text-gray-500 hover:underline">Leave Tournament</button>
         </div>
-        {isHost ? (
-          <button onClick={() => {
-              setTournament(prev => {
-                  if (!prev) return null;
-                  const updated = {...prev, status: 'playing' as const };
-                  setQuestionStartTime(Date.now());
-                  return updated;
-              })
-          }} className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold">
-            Start Game for Everyone
-          </button>
-        ) : (
-          <p className="text-gray-400">The host (<span className="text-white">{tournament.creatorId}</span>) will start the game soon.</p>
-        )}
-        <button onClick={onExit} className="mt-4 text-sm text-gray-500 hover:underline">Leave Tournament</button>
+        <aside className="w-full md:w-80 flex-shrink-0 bg-gray-800 p-4 rounded-lg flex flex-col">
+          {/* Chat in waiting room */}
+          <div className="flex-grow flex flex-col h-full">
+              <h3 className="text-xl font-bold mb-2 text-amber-400">Chat</h3>
+              <div ref={chatContainerRef} className="flex-grow bg-gray-900/50 p-2 rounded-lg overflow-y-auto mb-2 min-h-[200px]">
+                  {tournament.messages.length === 0 && <p className="text-gray-500 text-sm text-center">Chat room is live!</p>}
+                  {tournament.messages.map((msg, index) => (
+                      <div key={index} className="mb-2">
+                          <span className={`font-bold text-sm ${msg.name === playerName ? 'text-purple-400' : 'text-cyan-400'}`}>{msg.name}: </span>
+                          <span className="text-white text-sm break-words">{msg.message}</span>
+                      </div>
+                  ))}
+              </div>
+              <div className="flex gap-2">
+                  <input type="text" value={chatMessage} onChange={e => setChatMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMessage()} placeholder="Type a message..." className="flex-grow px-3 py-1 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:ring-amber-500 focus:border-amber-500"/>
+                  <button onClick={handleSendMessage} className="px-4 py-1 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white text-sm font-semibold">Send</button>
+              </div>
+          </div>
+        </aside>
       </div>
     );
   }
@@ -337,8 +398,15 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
             <h3 className="text-xl font-bold mb-2 text-purple-400">Live Leaderboard</h3>
             <ul className="space-y-2 text-left">
               {sortedPlayers.map(p => (
-                <li key={p.id} className="p-2 bg-gray-700 rounded-lg flex justify-between">
-                  <span className="font-semibold">{p.name} {p.isFinished ? '🏁' : ''}</span>
+                <li key={p.id} className="p-2 bg-gray-700 rounded-lg flex justify-between items-center">
+                   <div className="flex items-center gap-2">
+                        <span className="font-semibold truncate">{p.name} {p.isFinished ? '🏁' : ''}</span>
+                        {p.lastAnswer && (
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${p.lastAnswer.correct ? 'bg-green-500/80' : 'bg-red-500/80'}`}>
+                                {p.lastAnswer.correct ? `✅ +${p.lastAnswer.scoreChange}` : '❌'}
+                            </span>
+                        )}
+                    </div>
                   <span className="text-gray-300">{p.score} pts</span>
                 </li>
               ))}
@@ -402,16 +470,46 @@ const TournamentRoom: React.FC<TournamentRoomProps> = ({
             </button>
         </div>
 
-        <aside className="w-full md:w-64 flex-shrink-0 bg-gray-800 p-4 rounded-lg">
-            <h3 className="text-xl font-bold mb-4 text-purple-400">Leaderboard</h3>
+        <aside className="w-full md:w-80 flex-shrink-0 bg-gray-800 p-4 rounded-lg flex flex-col">
+            <h3 className="text-xl font-bold mb-2 text-purple-400">Leaderboard</h3>
             <ul className="space-y-2">
               {sortedPlayers.map(p => (
-                <li key={p.id} className={`p-2 rounded-lg flex justify-between ${p.name === playerName ? 'bg-purple-900' : 'bg-gray-700'}`}>
-                  <span className="font-semibold truncate">{p.name} {p.isFinished ? '🏁' : ''}</span>
+                <li key={p.id} className={`p-2 rounded-lg flex justify-between items-center transition-all duration-300 ${p.name === playerName ? 'bg-purple-900' : 'bg-gray-700'}`}>
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold truncate">{p.name} {p.isFinished ? '🏁' : ''}</span>
+                        {p.lastAnswer && (
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full text-white ${p.lastAnswer.correct ? 'bg-green-500/80' : 'bg-red-500/80'}`}>
+                                {p.lastAnswer.correct ? `✅ +${p.lastAnswer.scoreChange}` : '❌'}
+                            </span>
+                        )}
+                    </div>
                   <span className="text-gray-300 flex-shrink-0 pl-2">{p.score} pts</span>
                 </li>
               ))}
             </ul>
+             <div className="mt-4 flex-grow flex flex-col">
+                <h3 className="text-lg font-bold mb-2 text-amber-400">Chat</h3>
+                <div ref={chatContainerRef} className="flex-grow bg-gray-900/50 p-2 rounded-lg overflow-y-auto h-48 mb-2">
+                    {tournament.messages.length === 0 && <p className="text-gray-500 text-sm text-center">Chat room is live!</p>}
+                    {tournament.messages.map((msg, index) => (
+                        <div key={index} className="mb-2">
+                            <span className={`font-bold text-sm ${msg.name === playerName ? 'text-purple-400' : 'text-cyan-400'}`}>{msg.name}: </span>
+                            <span className="text-white text-sm break-words">{msg.message}</span>
+                        </div>
+                    ))}
+                </div>
+                <div className="flex gap-2">
+                    <input 
+                        type="text" 
+                        value={chatMessage} 
+                        onChange={e => setChatMessage(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
+                        placeholder="Type a message..."
+                        className="flex-grow px-3 py-1 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:ring-amber-500 focus:border-amber-500"
+                    />
+                    <button onClick={handleSendMessage} className="px-4 py-1 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white text-sm font-semibold">Send</button>
+                </div>
+            </div>
         </aside>
     </div>
   );
